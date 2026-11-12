@@ -14,12 +14,6 @@ YouTube-Link rein, MP3 raus. Ein kleines schwarzes Windows-Fenster, sonst nichts
 3. Link einfügen → **Download**
 4. **Ordner** → *Öffnen* zeigt die Datei, *Ändern …* wählt den Speicherort
 
-Windows zeigt beim ersten Start evtl. „Der Computer wurde durch Windows geschützt“, weil die
-Datei nicht signiert ist: *Weitere Informationen* → *Trotzdem ausführen*.
-
-Nur für Inhalte, die du herunterladen darfst, z. B. freie Musik (NCS, Creative Commons) oder
-eigene Videos.
-
 ## Sicherheit
 
 - Nimmt nur echte YouTube-Links an (der Server muss YouTube sein, Tricks wie
