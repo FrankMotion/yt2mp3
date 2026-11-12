@@ -24,25 +24,6 @@ YouTube-Link rein, MP3 raus. Ein kleines schwarzes Windows-Fenster, sonst nichts
 - Windows-Programme (curl, tar, explorer, taskkill) werden mit vollem Pfad gestartet.
 - Keine Admin-Rechte, kein offener Port, keine Daten an irgendwen außer YouTube und GitHub.
 
-## Wo liegt was
-
-| | |
-|---|---|
-| Einstellungen | `%APPDATA%\YT2MP3\settings.txt` |
-| Hilfsprogramme | `%LOCALAPPDATA%\YT2MP3\bin` |
-
-## Selbst bauen
-
-Voraussetzungen: [Rust](https://rustup.rs) und die Visual Studio Build Tools (C++).
-
-```powershell
-./scripts/build.ps1
-```
-
-Ergebnis: `YT2MP3.exe` im Projektordner. Das Skript sorgt dafür, dass keine lokalen
-Ordnernamen (z. B. dein Windows-Benutzername) in der `.exe` landen.
-Ein neues Release entsteht automatisch, wenn ein Tag wie `v1.0.1` gepusht wird.
-
 ## Aufbau
 
 | Datei | Inhalt |
