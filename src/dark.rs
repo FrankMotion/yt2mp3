@@ -31,7 +31,99 @@ extern "system" {
 extern "system" {
     fn FillRect(hdc: *mut c_void, r: *const Rect, brush: *mut c_void) -> i32;
     fn GetClientRect(h: Hwnd, r: *mut Rect) -> i32;
+    fn GetWindowRect(h: Hwnd, r: *mut Rect) -> i32;
+    fn GetDpiForWindow(h: Hwnd) -> u32;
+    fn RedrawWindow(h: Hwnd, r: *const Rect, region: *mut c_void, flags: u32) -> i32;
+    fn GetWindowDC(h: Hwnd) -> *mut c_void;
+    fn ReleaseDC(h: Hwnd, dc: *mut c_void) -> i32;
+    fn ClientToScreen(h: Hwnd, p: *mut Point) -> i32;
+}
+
+#[repr(C)]
+struct Point {
+    x: i32,
+    y: i32,
+}
+
+#[link(name = "gdi32")]
+extern "system" {
+    fn ExcludeClipRect(dc: *mut c_void, l: i32, t: i32, r: i32, b: i32) -> i32;
+}
+
+/// A solid brush, as an address so it can live in a 'static closure.
+pub fn brush(color: u32) -> usize {
+    unsafe { CreateSolidBrush(color) as usize }
+}
+
+/// Paints a control's frame (the part outside its client area) in one
+/// colour. Windows / nwg would paint it system-white after a resize.
+pub fn frame(h: Hwnd, msg: u32, brush: usize) -> Option<isize> {
+    const WM_NCPAINT: u32 = 0x0085;
+    if msg != WM_NCPAINT {
+        return None;
+    }
+    unsafe {
+        let dc = GetWindowDC(h);
+        if dc.is_null() {
+            return None;
+        }
+        let mut wr = Rect { l: 0, t: 0, r: 0, b: 0 };
+        let mut cr = Rect { l: 0, t: 0, r: 0, b: 0 };
+        GetWindowRect(h, &mut wr);
+        GetClientRect(h, &mut cr);
+        let mut origin = Point { x: 0, y: 0 };
+        ClientToScreen(h, &mut origin);
+        let (ox, oy) = (origin.x - wr.l, origin.y - wr.t);
+        ExcludeClipRect(dc, ox, oy, ox + cr.r, oy + cr.b);
+        let all = Rect { l: 0, t: 0, r: wr.r - wr.l, b: wr.b - wr.t };
+        FillRect(dc, &all, brush as *mut c_void);
+        ReleaseDC(h, dc);
+    }
+    Some(0)
+}
+
+#[link(name = "user32")]
+extern "system" {
     fn SendMessageW(h: Hwnd, msg: u32, w: usize, l: isize) -> isize;
+}
+
+/// Pixels per logical unit (1.0 at 100 % scaling).
+fn scale(h: Hwnd) -> f64 {
+    let dpi = unsafe { GetDpiForWindow(h) };
+    if dpi == 0 { 1.0 } else { dpi as f64 / 96.0 }
+}
+
+/// Client area in the same logical units nwg positions controls with.
+pub fn client_logical(h: Hwnd) -> (i32, i32) {
+    let mut r = Rect { l: 0, t: 0, r: 0, b: 0 };
+    unsafe { GetClientRect(h, &mut r) };
+    let s = scale(h);
+    (((r.r - r.l) as f64 / s) as i32, ((r.b - r.t) as f64 / s) as i32)
+}
+
+/// Outer window size in real pixels.
+pub fn window_pixels(h: Hwnd) -> (i32, i32) {
+    let mut r = Rect { l: 0, t: 0, r: 0, b: 0 };
+    unsafe { GetWindowRect(h, &mut r) };
+    (r.r - r.l, r.b - r.t)
+}
+
+/// Repaint the whole window, background and every control, right now
+/// (after a relayout, so no edges of old positions are left behind).
+pub fn repaint(h: Hwnd) {
+    const RDW_INVALIDATE: u32 = 0x0001;
+    const RDW_ERASE: u32 = 0x0004;
+    const RDW_ALLCHILDREN: u32 = 0x0080;
+    const RDW_UPDATENOW: u32 = 0x0100;
+    const RDW_FRAME: u32 = 0x0400;
+    unsafe {
+        RedrawWindow(
+            h,
+            std::ptr::null(),
+            std::ptr::null_mut(),
+            RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN | RDW_UPDATENOW | RDW_FRAME,
+        )
+    };
 }
 #[link(name = "kernel32")]
 extern "system" {
@@ -44,7 +136,7 @@ const fn rgb(r: u32, g: u32, b: u32) -> u32 {
     r | (g << 8) | (b << 16)
 }
 pub const BG: u32 = rgb(10, 10, 10);
-const FIELD: u32 = rgb(26, 26, 26);
+pub const FIELD: u32 = rgb(26, 26, 26);
 const TEXT: u32 = rgb(236, 236, 236);
 const MUTED: u32 = rgb(150, 150, 150);
 const BAR: u32 = rgb(236, 236, 236);
@@ -104,18 +196,32 @@ pub fn progress(bar: Hwnd) {
     }
 }
 
-/// Brushes the window's message hook hands back to Windows.
+/// Brushes the window's message hook hands back to Windows,
+/// plus the smallest size the window may be dragged to.
 pub struct Paint {
     bg: *mut c_void,
     field: *mut c_void,
+    min_size: (i32, i32),
+}
+
+/// Layout of MINMAXINFO: five POINTs; ptMinTrackSize is the fourth.
+#[repr(C)]
+struct MinMaxInfo {
+    reserved: [i32; 2],
+    max_size: [i32; 2],
+    max_position: [i32; 2],
+    min_track: [i32; 2],
+    max_track: [i32; 2],
 }
 
 impl Paint {
-    pub fn new() -> Self {
+    /// `min_size`: smallest outer window size in pixels.
+    pub fn new(min_size: (i32, i32)) -> Self {
         unsafe {
             Paint {
                 bg: CreateSolidBrush(BG),
                 field: CreateSolidBrush(FIELD),
+                min_size,
             }
         }
     }
@@ -124,6 +230,7 @@ impl Paint {
     /// `edit` is the link field (it asks with CTLCOLORSTATIC while read-only).
     pub fn handle(&self, hwnd: Hwnd, msg: u32, w: usize, l: isize, edit: Hwnd) -> Option<isize> {
         const WM_ERASEBKGND: u32 = 0x0014;
+        const WM_GETMINMAXINFO: u32 = 0x0024;
         const WM_CTLCOLOREDIT: u32 = 0x0133;
         const WM_CTLCOLORBTN: u32 = 0x0135;
         const WM_CTLCOLORSTATIC: u32 = 0x0138;
@@ -135,6 +242,11 @@ impl Paint {
                     GetClientRect(hwnd, &mut r);
                     FillRect(hdc, &r, self.bg);
                     Some(1)
+                }
+                WM_GETMINMAXINFO if self.min_size.0 > 0 => {
+                    let info = &mut *(l as *mut MinMaxInfo);
+                    info.min_track = [self.min_size.0, self.min_size.1];
+                    Some(0)
                 }
                 WM_CTLCOLOREDIT => {
                     SetTextColor(hdc, TEXT);

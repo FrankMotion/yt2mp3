@@ -33,8 +33,8 @@ pub struct App {
     icon: nwg::Icon,
 
     // starts hidden; init() paints it black, then shows it (no white flash)
-    #[nwg_control(size: (440, 96), center: true, title: "YT2MP3", icon: Some(&data.icon), flags: "WINDOW|MINIMIZE_BOX")]
-    #[nwg_events(OnWindowClose: [App::exit], OnInit: [App::init])]
+    #[nwg_control(size: (440, 96), center: true, title: "YT2MP3", icon: Some(&data.icon), flags: "WINDOW|MINIMIZE_BOX|MAXIMIZE_BOX|RESIZABLE")]
+    #[nwg_events(OnWindowClose: [App::exit], OnInit: [App::init], OnResize: [App::layout], OnWindowMaximize: [App::layout])]
     window: nwg::Window,
 
     #[nwg_control(parent: window, position: (12, 12), size: (300, 26), placeholder_text: Some("YouTube-Link"))]
@@ -77,6 +77,7 @@ pub struct App {
     settings: RefCell<Option<settings::Settings>>,
     last_file: RefCell<Option<String>>,
     dark_hook: RefCell<Option<nwg::RawEventHandler>>,
+    frame_hooks: RefCell<Vec<nwg::RawEventHandler>>,
 }
 
 fn hwnd(h: &nwg::ControlHandle) -> *mut std::ffi::c_void {
@@ -100,16 +101,68 @@ impl App {
         dark::theme(hwnd(&self.folder_btn.handle), "DarkMode_Explorer");
         dark::theme(edit, "DarkMode_CFD");
         dark::progress(hwnd(&self.progress.handle));
-        let paint = dark::Paint::new();
+        // smallest size: full height, a bit narrower than the start width
+        let (w, h) = dark::window_pixels(hwnd(&self.window.handle));
+        let paint = dark::Paint::new((w * 8 / 10, h));
         let edit_addr = edit as usize;
         let hook = nwg::bind_raw_event_handler(&self.window.handle, 0x1_0001, move |h, msg, w, l| {
             paint.handle(h as *mut std::ffi::c_void, msg, w, l, edit_addr as *mut std::ffi::c_void)
         });
         *self.dark_hook.borrow_mut() = hook.ok();
+
+        // frames of the field, the status line and the bar: dark, never white
+        let parts = [
+            (&self.url.handle, dark::FIELD),
+            (&self.status.handle, dark::BG),
+            (&self.progress.handle, dark::BG),
+        ];
+        for (i, (handle, color)) in parts.into_iter().enumerate() {
+            let brush = dark::brush(color);
+            let hook = nwg::bind_raw_event_handler(handle, 0x1_0010 + i, move |h, msg, _w, _l| {
+                dark::frame(h as *mut std::ffi::c_void, msg, brush)
+            });
+            if let Ok(hook) = hook {
+                self.frame_hooks.borrow_mut().push(hook);
+            }
+        }
+    }
+
+    /// Fits the controls to the window: field, bar and status grow with the
+    /// width, buttons stay on the right, the block stays vertically centred.
+    fn layout(&self) {
+        let win = hwnd(&self.window.handle);
+        if win.is_null() {
+            return;
+        }
+        let (w, h) = dark::client_logical(win);
+        if w <= 0 || h <= 0 {
+            return; // minimised
+        }
+        const M: i32 = 12; // margin
+        const GO_W: i32 = 108;
+        const DIR_W: i32 = 78;
+        const MAX_W: i32 = 900; // content never wider than this; centred beyond
+        let cw = w.min(MAX_W);
+        let left = (w - cw) / 2;
+        let right = left + cw;
+        let top = ((h - 96) / 2).max(0);
+        let wide = |x: i32, min: i32| x.max(min) as u32;
+        self.url.set_position(left + M, top + 12);
+        self.url.set_size(wide(cw - 2 * M - GO_W - 8, 60), 26);
+        self.go_btn.set_position(right - M - GO_W, top + 11);
+        self.go_btn.set_size(GO_W as u32, 28);
+        self.progress.set_position(left + M, top + 48);
+        self.progress.set_size(wide(cw - 2 * M, 10), 4);
+        self.status.set_position(left + M, top + 62);
+        self.status.set_size(wide(cw - 2 * M - DIR_W - 8, 40), 22);
+        self.folder_btn.set_position(right - M - DIR_W, top + 59);
+        self.folder_btn.set_size(DIR_W as u32, 26);
+        dark::repaint(win);
     }
 
     fn init(&self) {
         self.paint_black();
+        self.layout();
         self.window.set_visible(true);
         let s = settings::load();
         let due = settings::now().saturating_sub(s.last_update) > 3 * 24 * 3600;
