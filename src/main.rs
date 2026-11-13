@@ -13,18 +13,36 @@ use native_windows_derive::NwgUi;
 use native_windows_gui as nwg;
 use nwg::NativeUi;
 use std::cell::RefCell;
+use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 
-/// State the worker thread hands to the UI thread (read on every notice).
+/// One waiting link, with the format and folder chosen when it was added.
+struct QueueItem {
+    url: String,
+    folder: String,
+    format: &'static str,
+    quality: &'static str,
+}
+
+/// State shared between the UI thread and the download worker.
 #[derive(Default)]
 struct Shared {
     text: String,
     percent: u32,
+    /// the worker is running
     busy: bool,
     ready: bool,
     pid: Option<u32>,
     cancelled: bool,
-    done_file: Option<String>,
+    /// links still waiting
+    queue: VecDeque<QueueItem>,
+    /// finished files the UI has not put into the history yet
+    done_files: Vec<String>,
+}
+
+/// "…  ·  noch 3" while links are waiting.
+fn with_queue(text: &str, waiting: usize) -> String {
+    if waiting > 0 { format!("{text}  ·  noch {waiting}") } else { text.to_string() }
 }
 
 #[derive(Default, NwgUi)]
@@ -41,7 +59,7 @@ pub struct App {
     window: nwg::Window,
 
     #[nwg_control(parent: window, size: (300, 28), placeholder_text: Some("Link von YouTube, TikTok oder Instagram"))]
-    #[nwg_events(OnKeyEnter: [App::go])]
+    #[nwg_events(OnKeyEnter: [App::go], OnTextInput: [App::update_go_label])]
     url: nwg::TextInput,
 
     #[nwg_control(parent: window, size: (116, 26), collection: job::FORMATS.iter().map(|f| f.0).collect(), selected_index: Some(0))]
@@ -381,22 +399,24 @@ impl App {
         self.change(|s| s.quality = id.into());
     }
 
+    /// Enter / Download: a link in the field joins the queue (and starts the
+    /// worker if it is idle); an empty field while busy means "Abbrechen".
     fn go(&self) {
-        let (busy, ready, pid) = {
+        let text = self.url.text();
+        let (busy, ready) = {
             let sh = self.shared.lock().unwrap();
-            (sh.busy, sh.ready, sh.pid)
+            (sh.busy, sh.ready)
         };
-        if busy {
-            if let Some(pid) = pid {
-                self.shared.lock().unwrap().cancelled = true;
-                job::cancel(pid);
+        if text.trim().is_empty() {
+            if busy {
+                self.cancel_all();
             }
             return;
         }
         if !ready {
             return;
         }
-        let url = match job::check_url(&self.url.text()) {
+        let url = match job::check_url(&text) {
             Ok(u) => u,
             Err(e) => {
                 self.status.set_text(&e);
@@ -404,28 +424,63 @@ impl App {
                 return;
             }
         };
+        let item = QueueItem {
+            url,
+            folder: self.folder(),
+            format: self.format_id(),
+            quality: self.quality_id(),
+        };
+        {
+            let mut sh = self.shared.lock().unwrap();
+            sh.queue.push_back(item);
+            if busy {
+                // show the new count right away
+                let base = sh.text.split("  ·  noch ").next().unwrap_or_default().to_string();
+                let waiting = sh.queue.len();
+                sh.text = with_queue(&base, waiting);
+            }
+        }
+        self.url.set_text("");
+        self.url.set_focus();
+        if !busy {
+            self.start_worker();
+        }
+        self.on_notice();
+    }
+
+    /// Works through the queue, one link after the other, until it is empty
+    /// or everything is cancelled.
+    fn start_worker(&self) {
         {
             let mut sh = self.shared.lock().unwrap();
             sh.busy = true;
             sh.cancelled = false;
-            sh.done_file = None;
             sh.percent = 0;
             sh.text = "Startet …".into();
         }
-        self.on_notice();
-
-        let folder = self.folder();
-        let format = self.format_id();
-        let quality = self.quality_id();
         let shared = self.shared.clone();
         let sender = self.notice.sender();
-        std::thread::spawn(move || {
+        std::thread::spawn(move || loop {
+            let next = {
+                let mut sh = shared.lock().unwrap();
+                let next = if sh.cancelled { None } else { sh.queue.pop_front() };
+                if next.is_none() {
+                    sh.busy = false;
+                    sh.queue.clear();
+                }
+                next
+            };
+            let Some(item) = next else {
+                sender.notice();
+                break;
+            };
             let set_pid = |p: Option<u32>| shared.lock().unwrap().pid = p;
             let send = |u: job::Update| {
                 let mut sh = shared.lock().unwrap();
+                let waiting = sh.queue.len();
                 match u {
                     job::Update::Status(t, p) => {
-                        sh.text = t;
+                        sh.text = with_queue(&t, waiting);
                         sh.percent = p;
                     }
                     job::Update::Done(file) => {
@@ -433,43 +488,59 @@ impl App {
                             .file_name()
                             .map(|n| n.to_string_lossy().into_owned())
                             .unwrap_or_default();
-                        sh.text = format!("✓ {name}");
+                        sh.text = with_queue(&format!("✓ {name}"), waiting);
                         sh.percent = 100;
-                        sh.done_file = Some(file);
-                        sh.busy = false;
+                        sh.done_files.push(file);
                     }
                     job::Update::Failed(e) => {
-                        sh.text = if sh.cancelled { "Abgebrochen".into() } else { e };
+                        sh.text = if sh.cancelled { "Abgebrochen".into() } else { with_queue(&e, waiting) };
                         sh.percent = 0;
-                        sh.busy = false;
                     }
                 }
                 drop(sh);
                 sender.notice();
             };
-            job::run(&url, &folder, format, quality, &set_pid, &send);
+            job::run(&item.url, &item.folder, item.format, item.quality, &set_pid, &send);
         });
+    }
+
+    /// Stops the running download and drops everything still waiting.
+    fn cancel_all(&self) {
+        let pid = {
+            let mut sh = self.shared.lock().unwrap();
+            sh.cancelled = true;
+            sh.queue.clear();
+            sh.pid
+        };
+        if let Some(pid) = pid {
+            job::cancel(pid);
+        }
+    }
+
+    /// The main button says "Abbrechen" only while busy with an empty field;
+    /// otherwise it adds what is in the field.
+    fn update_go_label(&self) {
+        let busy = self.shared.lock().unwrap().busy;
+        let empty = self.url.text().trim().is_empty();
+        self.go_btn.set_text(if busy && empty { "Abbrechen" } else { "Download" });
     }
 
     /// Worker thread poked us: copy its state into the controls.
     fn on_notice(&self) {
-        let new_file = {
-            let sh = self.shared.lock().unwrap();
+        let new_files = {
+            let mut sh = self.shared.lock().unwrap();
             self.status.set_text(&sh.text);
             self.progress.set_pos(sh.percent);
-            self.go_btn.set_text(if sh.busy { "Abbrechen" } else { "Download" });
             self.go_btn.set_enabled(sh.ready);
-            self.url.set_readonly(sh.busy);
-            self.format.set_enabled(!sh.busy);
-            self.quality.set_enabled(!sh.busy);
-            self.folder_btn.set_enabled(!sh.busy);
-            sh.done_file.clone().filter(|f| self.last_file.borrow().as_deref() != Some(f.as_str()))
+            std::mem::take(&mut sh.done_files)
         };
-        if let Some(f) = new_file {
-            *self.last_file.borrow_mut() = Some(f.clone());
-            self.url.set_text("");
-            self.url.set_focus();
-            self.entries.borrow_mut().insert(0, history::Entry { when: history::now(), path: f });
+        self.update_go_label();
+        if !new_files.is_empty() {
+            let when = history::now();
+            for f in &new_files {
+                self.entries.borrow_mut().insert(0, history::Entry { when: when.clone(), path: f.clone() });
+            }
+            *self.last_file.borrow_mut() = new_files.last().cloned();
             history::save(&self.entries.borrow());
             self.refresh_history();
         }
@@ -571,9 +642,7 @@ impl App {
     }
 
     fn exit(&self) {
-        if let Some(pid) = self.shared.lock().unwrap().pid {
-            job::cancel(pid);
-        }
+        self.cancel_all();
         nwg::stop_thread_dispatch();
     }
 }

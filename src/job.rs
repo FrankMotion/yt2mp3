@@ -13,9 +13,20 @@ pub enum Update {
     Failed(String),
 }
 
-/// yt-dlp extractors the app may use: single YouTube videos, TikToks
+/// yt-dlp extractors the app may use: YouTube videos and playlists
+/// (youtube:tab also covers channels – check_url keeps those out), TikToks
 /// (also vm.tiktok.com short links) and Instagram reels/posts.
-pub const EXTRACTORS: &str = "youtube,TikTok,vm.tiktok,Instagram";
+pub const EXTRACTORS: &str = "youtube,youtube:tab,youtube:playlist,TikTok,vm.tiktok,Instagram";
+
+/// At most this many entries are taken from one playlist.
+const PLAYLIST_MAX: u32 = 300;
+
+/// A YouTube (Music) playlist link, e.g. .../playlist?list=… – loads every entry.
+/// A video link that merely carries &list=… still loads just that video.
+pub fn is_playlist(url: &str) -> bool {
+    let l = url.to_ascii_lowercase();
+    l.contains("youtube.com/playlist?") && l.contains("list=")
+}
 
 /// The sites a link may point to (the host itself, not text in the link).
 fn supported_host(host: &str) -> bool {
@@ -43,8 +54,11 @@ pub fn check_url(url: &str) -> Result<String, String> {
     if !supported_host(host) {
         return Err(bad());
     }
-    if rest.contains("/playlist?") {
-        return Err("Playlists gehen nicht – bitte ein einzelnes Video".into());
+    // YouTube channel pages would download the whole channel: keep them out
+    let path = rest[authority.len()..].to_string();
+    let channel = ["/@", "/channel/", "/c/", "/user/"].iter().any(|p| path.starts_with(p));
+    if (host == "youtube.com" || host.ends_with(".youtube.com")) && channel {
+        return Err("Ganze Kanäle gehen nicht – bitte ein Video oder eine Playlist".into());
     }
     Ok(u.to_string())
 }
@@ -67,6 +81,8 @@ fn friendly(err: &str) -> String {
         ("unsupported url", "Diese Art Link geht nicht – bitte direkt zum Video/Reel"),
         ("no suitable extractor", "Diese Art Link geht nicht – bitte direkt zum Video/Reel"),
         ("no video formats found", "In dem Beitrag ist kein Video"),
+        ("unable to obtain file audio codec", "Das Video hat keinen Ton – nur als Video ladbar"),
+        ("does not contain any audio", "Das Video hat keinen Ton – nur als Video ladbar"),
     ];
     for (needle, msg) in rules {
         if e.contains(needle) {
@@ -155,8 +171,9 @@ fn format_args(format: &str, quality: &str) -> Vec<String> {
     a
 }
 
-/// Runs the download. `pid` receives the process id (for cancelling),
-/// `send` gets progress; returns when yt-dlp has exited.
+/// Runs one queue entry: a single video, or every entry of a playlist.
+/// `pid` receives the process id (for cancelling), `send` gets progress and
+/// one `Done` per finished file; returns when yt-dlp has exited.
 pub fn run(
     url: &str,
     folder: &str,
@@ -166,6 +183,7 @@ pub fn run(
     send: &dyn Fn(Update),
 ) {
     let video = is_video(format);
+    let playlist = is_playlist(url);
     let label = FORMATS.iter().find(|f| f.1 == format).map(|f| f.0).unwrap_or("MP3");
     let folder = Path::new(folder);
     if let Err(e) = std::fs::create_dir_all(folder) {
@@ -179,7 +197,7 @@ pub fn run(
     let mut c = tools::hidden(tools::ytdlp());
     // Locked down: no config files, no plugins, no --exec, only the supported sites.
     c.args(["--ignore-config", "--no-plugin-dirs", "--no-exec", "--use-extractors", EXTRACTORS])
-        .args(["--no-playlist", "--newline", "--no-mtime", "--windows-filenames"])
+        .args(["--newline", "--no-mtime", "--windows-filenames"])
         // use the Windows certificate store: works behind antivirus HTTPS scanning
         .args(["--compat-options", "no-certifi"])
         .arg("--ffmpeg-location")
@@ -196,8 +214,14 @@ pub fn run(
         .args(["--progress-template", "download:[[P]]%(progress.downloaded_bytes)s|%(progress.total_bytes)s|%(progress.total_bytes_estimate)s|%(progress.speed)s"])
         .arg("--print-to-file")
         .arg("after_move:%(filepath)s")
-        .arg(&result)
-        .arg("--")
+        .arg(&result);
+    if playlist {
+        // every entry, but never more than PLAYLIST_MAX; a broken entry is skipped
+        c.args(["--yes-playlist", "--ignore-errors", "--playlist-items"]).arg(format!("1:{PLAYLIST_MAX}"));
+    } else {
+        c.arg("--no-playlist");
+    }
+    c.arg("--")
         .arg(url)
         .env("PYTHONIOENCODING", "utf-8")
         .env("PYTHONUTF8", "1")
@@ -222,12 +246,18 @@ pub fn run(
     }
     drop(tx);
 
-    send(Update::Status("Lädt …".into(), 0));
+    send(Update::Status(if playlist { "Liest Playlist …".into() } else { "Lädt …".into() }, 0));
     let mut errors = String::new();
     let mut last = u32::MAX;
-    // Video comes as two downloads (picture, then sound); the bar spans both:
+    // Playlist position ("item 3 of 12"); the bar spans the whole playlist.
+    let (mut item, mut items) = (1u32, 1u32);
+    // Video comes as two downloads (picture, then sound); per entry the bar is
     // audio: download 0-90 %, video: picture 0-70 %, sound 70-88 %.
     let mut part = 0u32;
+    let overall = |bar: u32, item: u32, items: u32| ((item - 1) * 100 + bar) / items.max(1);
+    let prefix = |item: u32, items: u32| {
+        if items > 1 { format!("{item}/{items}  ·  ") } else { String::new() }
+    };
     for line in rx {
         if let Some(rest) = line.strip_prefix("[[P]]") {
             let f: Vec<f64> = rest.split('|').map(|x| x.trim().parse().unwrap_or(0.0)).collect();
@@ -250,20 +280,30 @@ pub fn run(
                 };
                 let speed = at(3);
                 let text = if speed > 0.0 {
-                    format!("{what} … {shown} %  ·  {:.1} MB/s", speed / 1_048_576.0)
+                    format!("{}{what} … {shown} %  ·  {:.1} MB/s", prefix(item, items), speed / 1_048_576.0)
                 } else {
-                    format!("{what} … {shown} %")
+                    format!("{}{what} … {shown} %", prefix(item, items))
                 };
-                send(Update::Status(text, bar));
+                send(Update::Status(text, overall(bar, item, items)));
+            }
+        } else if let Some(rest) = line.strip_prefix("[download] Downloading item ") {
+            // "[download] Downloading item 3 of 12"
+            let mut n = rest.split(" of ").map(|x| x.trim().parse::<u32>().unwrap_or(0));
+            if let (Some(a), Some(b)) = (n.next(), n.next()) {
+                if a > 0 && b > 0 {
+                    (item, items) = (a, b);
+                    part = 0;
+                    last = u32::MAX;
+                }
             }
         } else if line.starts_with("[download] Destination:") {
             part += 1;
         } else if line.starts_with("[ExtractAudio]") {
-            send(Update::Status(format!("Wandelt in {label} um …"), 92));
+            send(Update::Status(format!("{}Wandelt in {label} um …", prefix(item, items)), overall(92, item, items)));
         } else if line.starts_with("[Merger]") {
-            send(Update::Status("Fügt Bild und Ton zusammen …".into(), 90));
+            send(Update::Status(format!("{}Fügt Bild und Ton zusammen …", prefix(item, items)), overall(90, item, items)));
         } else if line.starts_with("[EmbedThumbnail]") || line.starts_with("[Metadata]") {
-            send(Update::Status("Cover und Titel …".into(), 97));
+            send(Update::Status(format!("{}Cover und Titel …", prefix(item, items)), overall(97, item, items)));
         } else if line.contains("ERROR") {
             errors.push_str(&line);
             errors.push('\n');
@@ -271,14 +311,20 @@ pub fn run(
     }
     let ok = child.wait().map(|s| s.success()).unwrap_or(false);
     pid(None);
-    let file = std::fs::read_to_string(&result)
-        .ok()
-        .and_then(|t| t.lines().rev().find(|l| !l.trim().is_empty()).map(|l| l.trim().to_string()));
+    let files: Vec<String> = std::fs::read_to_string(&result)
+        .map(|t| t.lines().map(str::trim).filter(|l| !l.is_empty()).map(String::from).collect())
+        .unwrap_or_default();
     let _ = std::fs::remove_dir_all(&work);
-    match (ok, file) {
-        (true, Some(f)) => send(Update::Done(f)),
-        (true, None) => send(Update::Failed("Fertig, aber Datei nicht gefunden".into())),
-        (false, _) => send(Update::Failed(friendly(&errors))),
+    for f in &files {
+        send(Update::Done(f.clone()));
+    }
+    let failed = errors.lines().count();
+    match (files.len(), ok) {
+        (0, true) => send(Update::Failed("Fertig, aber Datei nicht gefunden".into())),
+        (0, false) => send(Update::Failed(friendly(&errors))),
+        (n, true) if n > 1 => send(Update::Status(format!("✓ {n} Dateien fertig"), 100)),
+        (n, false) => send(Update::Status(format!("✓ {n} fertig, {failed} nicht verfügbar"), 100)),
+        _ => {}
     }
 }
 

@@ -6,6 +6,8 @@ Link rein, Musik oder Video raus – von **YouTube, TikTok und Instagram**. Ein 
 
 - **Musik:** MP3 (320 kbit/s), M4A, Opus, FLAC, WAV – mit Titel, Künstler und quadratischem Cover
 - **Video:** MP4, MKV, WebM – Qualität wählbar von 360p bis 4K
+- **Warteschlange:** weitere Links einfügen, während einer lädt – sie werden nacheinander abgearbeitet
+- **Playlists:** ganze YouTube-Playlists und YouTube-Music-Alben (bis 300 Titel)
 - **Verlauf** der Downloads: Doppelklick spielt ab, Rechtsklick zeigt die Datei im Ordner oder entfernt sie aus der Liste
 - Natives Windows-Fenster in Rust: ca. 500 KB, ca. 4 MB RAM, Größe frei veränderbar
 - Keine Installation: `Corvus.exe` starten, fertig
@@ -15,7 +17,9 @@ Link rein, Musik oder Video raus – von **YouTube, TikTok und Instagram**. Ein 
 
 1. `Corvus.exe` unter [Releases](../../releases) herunterladen und starten
 2. Beim ersten Start lädt die App einmalig ca. 200 MB Hilfsprogramme (yt-dlp, FFmpeg, Deno, Zertifikatsliste)
-3. Link einfügen (YouTube-Video, TikTok, Instagram-Reel oder -Post), Format wählen (bei Video zusätzlich die Qualität) → **Download**
+3. Link einfügen (YouTube-Video oder -Playlist, TikTok, Instagram-Reel oder -Post), Format wählen
+   (bei Video zusätzlich die Qualität) → **Download**. Weitere Links kannst du sofort hinterher
+   einfügen, sie kommen in die Warteschlange. **Abbrechen** (bei leerem Feld) stoppt alles.
 4. **Ordner** → *Öffnen* zeigt die Datei, *Ändern …* wählt den Speicherort
    (Musik und Videos haben je einen eigenen Ordner)
 
@@ -54,3 +58,4 @@ Link rein, Musik oder Video raus – von **YouTube, TikTok und Instagram**. Ein 
 
 - **Instagram:** Nur öffentliche Reels und Posts. Stories und private Konten brauchen eine Anmeldung und gehen nicht.
 - **TikTok:** Direkt-Links zu einem Video (auch die kurzen `vm.tiktok.com`-Links). Profilseiten gehen nicht.
+- **YouTube:** Videos und Playlists. Ganze Kanäle gehen absichtlich nicht (sonst wären es schnell tausende Videos).
