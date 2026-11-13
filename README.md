@@ -1,9 +1,10 @@
 # YT2MP3
 
-YouTube-Link rein, MP3 raus. Ein kleines schwarzes Windows-Fenster, sonst nichts.
+YouTube-Link rein, Musik oder Video raus. Ein kleines schwarzes Windows-Fenster, sonst nichts.
 
-- MP3 in 320 kbit/s, mit Titel, Künstler und quadratischem Cover
-- Natives Windows-Fenster in Rust: ca. 400 KB, ca. 3 MB RAM
+- **Musik:** MP3 (320 kbit/s), M4A, Opus, FLAC, WAV – mit Titel, Künstler und quadratischem Cover
+- **Video:** MP4, MKV, WebM – Qualität wählbar von 360p bis 4K
+- Natives Windows-Fenster in Rust: ca. 400 KB, ca. 3 MB RAM, Größe frei veränderbar
 - Keine Installation: `YT2MP3.exe` starten, fertig
 - Holt sich beim ersten Start seine Hilfsprogramme selbst und hält yt-dlp aktuell
 
@@ -11,8 +12,17 @@ YouTube-Link rein, MP3 raus. Ein kleines schwarzes Windows-Fenster, sonst nichts
 
 1. `YT2MP3.exe` unter [Releases](../../releases) herunterladen und starten
 2. Beim ersten Start lädt die App einmalig ca. 200 MB Hilfsprogramme (yt-dlp, FFmpeg, Deno)
-3. Link einfügen → **Download**
+3. Link einfügen, Format wählen (bei Video zusätzlich die Qualität) → **Download**
 4. **Ordner** → *Öffnen* zeigt die Datei, *Ändern …* wählt den Speicherort
+   (Musik und Videos haben je einen eigenen Ordner)
+
+| Format | Gut für |
+|---|---|
+| MP3 | läuft überall: Handy, Auto, jeder Player |
+| M4A / Opus | YouTubes eigener Ton ohne Umwandlung – etwas kleiner und besser |
+| FLAC / WAV | verlustfrei bzw. unkomprimiert, für Schnitt und Produktion (groß) |
+| MP4 | Video, das überall läuft |
+| MKV / WebM | Video in bester Qualität bzw. im Web-Format |
 
 ## Sicherheit
 
@@ -32,5 +42,5 @@ YouTube-Link rein, MP3 raus. Ein kleines schwarzes Windows-Fenster, sonst nichts
 | `src/dark.rs` | schwarzer Look |
 | `src/job.rs` | ein Download: Link prüfen, yt-dlp + FFmpeg, Fortschritt, Abbrechen |
 | `src/tools.rs` | Hilfsprogramme laden und prüfen (über Windows' `curl` und `tar`) |
-| `src/settings.rs` | Speicherort merken |
+| `src/settings.rs` | Ordner, Format und Qualität merken |
 | `res/` | Icon und Windows-Manifest |

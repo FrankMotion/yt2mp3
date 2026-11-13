@@ -232,6 +232,7 @@ impl Paint {
         const WM_ERASEBKGND: u32 = 0x0014;
         const WM_GETMINMAXINFO: u32 = 0x0024;
         const WM_CTLCOLOREDIT: u32 = 0x0133;
+        const WM_CTLCOLORLISTBOX: u32 = 0x0134;
         const WM_CTLCOLORBTN: u32 = 0x0135;
         const WM_CTLCOLORSTATIC: u32 = 0x0138;
         let hdc = w as *mut c_void;
@@ -264,6 +265,12 @@ impl Paint {
                     Some(self.bg as isize)
                 }
                 WM_CTLCOLORBTN => Some(self.bg as isize),
+                // the drop-down list of the format / quality boxes
+                WM_CTLCOLORLISTBOX => {
+                    SetTextColor(hdc, TEXT);
+                    SetBkColor(hdc, FIELD);
+                    Some(self.field as isize)
+                }
                 _ => None,
             }
         }

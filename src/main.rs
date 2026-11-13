@@ -1,4 +1,4 @@
-//! YT2MP3 – a plain black Windows window: YouTube link in, MP3 out.
+//! YT2MP3 – a plain black Windows window: YouTube link in, music or video out.
 #![windows_subsystem = "windows"]
 
 mod dark;
@@ -33,7 +33,7 @@ pub struct App {
     icon: nwg::Icon,
 
     // starts hidden; init() paints it black, then shows it (no white flash)
-    #[nwg_control(size: (440, 96), center: true, title: "YT2MP3", icon: Some(&data.icon), flags: "WINDOW|MINIMIZE_BOX|MAXIMIZE_BOX|RESIZABLE")]
+    #[nwg_control(size: (600, 96), center: true, title: "YT2MP3", icon: Some(&data.icon), flags: "WINDOW|MINIMIZE_BOX|MAXIMIZE_BOX|RESIZABLE")]
     #[nwg_events(OnWindowClose: [App::exit], OnInit: [App::init], OnResize: [App::layout], OnWindowMaximize: [App::layout])]
     window: nwg::Window,
 
@@ -41,17 +41,25 @@ pub struct App {
     #[nwg_events(OnKeyEnter: [App::go])]
     url: nwg::TextInput,
 
-    #[nwg_control(parent: window, text: "Download", position: (320, 11), size: (108, 28))]
+    #[nwg_control(parent: window, size: (116, 26), collection: job::FORMATS.iter().map(|f| f.0).collect(), selected_index: Some(0))]
+    #[nwg_events(OnComboxBoxSelection: [App::format_changed])]
+    format: nwg::ComboBox<&'static str>,
+
+    #[nwg_control(parent: window, size: (78, 26), collection: job::QUALITIES.iter().map(|q| q.0).collect(), selected_index: Some(3))]
+    #[nwg_events(OnComboxBoxSelection: [App::quality_changed])]
+    quality: nwg::ComboBox<&'static str>,
+
+    #[nwg_control(parent: window, text: "Download", size: (100, 28))]
     #[nwg_events(OnButtonClick: [App::go])]
     go_btn: nwg::Button,
 
-    #[nwg_control(parent: window, position: (12, 48), size: (416, 4), range: 0..100)]
+    #[nwg_control(parent: window, size: (416, 4), range: 0..100)]
     progress: nwg::ProgressBar,
 
-    #[nwg_control(parent: window, text: "", position: (12, 62), size: (330, 22))]
+    #[nwg_control(parent: window, text: "", size: (330, 22))]
     status: nwg::Label,
 
-    #[nwg_control(parent: window, text: "Ordner", position: (350, 59), size: (78, 26))]
+    #[nwg_control(parent: window, text: "Ordner", size: (78, 26))]
     #[nwg_events(OnButtonClick: [App::folder_menu_show])]
     folder_btn: nwg::Button,
 
@@ -66,7 +74,7 @@ pub struct App {
     #[nwg_events(OnMenuItemSelected: [App::change_folder])]
     menu_change: nwg::MenuItem,
 
-    #[nwg_resource(title: "Ordner für MP3s", action: nwg::FileDialogAction::OpenDirectory)]
+    #[nwg_resource(title: "Ordner wählen", action: nwg::FileDialogAction::OpenDirectory)]
     dialog: nwg::FileDialog,
 
     #[nwg_control(parent: window)]
@@ -85,25 +93,65 @@ fn hwnd(h: &nwg::ControlHandle) -> *mut std::ffi::c_void {
 }
 
 impl App {
+    fn setting<T>(&self, f: impl FnOnce(&settings::Settings) -> T) -> T {
+        f(self.settings.borrow().as_ref().expect("settings loaded in init"))
+    }
+
+    /// Changes the remembered settings and writes them, keeping the
+    /// update time a background thread may have written meanwhile.
+    fn change(&self, f: impl FnOnce(&mut settings::Settings)) {
+        if let Some(s) = self.settings.borrow_mut().as_mut() {
+            f(s);
+            s.last_update = s.last_update.max(settings::load().last_update);
+            settings::save(s);
+        }
+    }
+
+    fn format_id(&self) -> &'static str {
+        let i = self.format.selection().unwrap_or(0);
+        job::FORMATS.get(i).map(|f| f.1).unwrap_or("mp3")
+    }
+
+    fn quality_id(&self) -> &'static str {
+        let i = self.quality.selection().unwrap_or(3);
+        job::QUALITIES.get(i).map(|q| q.1).unwrap_or("1080")
+    }
+
+    fn video(&self) -> bool {
+        job::is_video(self.format_id())
+    }
+
+    /// The folder for what is selected: music or video.
     fn folder(&self) -> String {
-        self.settings.borrow().as_ref().map(|s| s.folder.clone()).unwrap_or_default()
+        let video = self.video();
+        self.setting(|s| if video { s.video_folder.clone() } else { s.folder.clone() })
     }
 
     fn idle_text(&self) -> String {
         format!("→ {}", self.folder())
     }
 
-    /// Black title bar, dark field and buttons, white-on-dark progress bar.
+    fn show_idle(&self) {
+        let busy = self.shared.lock().unwrap().busy;
+        if !busy {
+            self.shared.lock().unwrap().text = self.idle_text();
+            self.on_notice();
+        }
+    }
+
+    /// Black title bar, dark field, lists and buttons, white-on-dark bar.
     fn paint_black(&self) {
         let edit = hwnd(&self.url.handle);
         dark::title_bar(hwnd(&self.window.handle));
         dark::theme(hwnd(&self.go_btn.handle), "DarkMode_Explorer");
         dark::theme(hwnd(&self.folder_btn.handle), "DarkMode_Explorer");
+        dark::theme(hwnd(&self.format.handle), "DarkMode_CFD");
+        dark::theme(hwnd(&self.quality.handle), "DarkMode_CFD");
         dark::theme(edit, "DarkMode_CFD");
         dark::progress(hwnd(&self.progress.handle));
         // smallest size: full height, a bit narrower than the start width
         let (w, h) = dark::window_pixels(hwnd(&self.window.handle));
-        let paint = dark::Paint::new((w * 8 / 10, h));
+        let paint = dark::Paint::new((w * 85 / 100, h));
         let edit_addr = edit as usize;
         let hook = nwg::bind_raw_event_handler(&self.window.handle, 0x1_0001, move |h, msg, w, l| {
             paint.handle(h as *mut std::ffi::c_void, msg, w, l, edit_addr as *mut std::ffi::c_void)
@@ -127,8 +175,9 @@ impl App {
         }
     }
 
-    /// Fits the controls to the window: field, bar and status grow with the
-    /// width, buttons stay on the right, the block stays vertically centred.
+    /// Fits the controls to the window: the link field, bar and status grow
+    /// with the width, the lists and buttons stay on the right, the block
+    /// stays vertically centred. The quality list only shows for video.
     fn layout(&self) {
         let win = hwnd(&self.window.handle);
         if win.is_null() {
@@ -139,34 +188,56 @@ impl App {
             return; // minimised
         }
         const M: i32 = 12; // margin
-        const GO_W: i32 = 108;
+        const GAP: i32 = 8;
+        const FMT_W: i32 = 116;
+        const Q_W: i32 = 78;
+        const GO_W: i32 = 100;
         const DIR_W: i32 = 78;
-        const MAX_W: i32 = 900; // content never wider than this; centred beyond
+        const MAX_W: i32 = 960; // content never wider than this; centred beyond
         let cw = w.min(MAX_W);
         let left = (w - cw) / 2;
         let right = left + cw;
         let top = ((h - 96) / 2).max(0);
         let wide = |x: i32, min: i32| x.max(min) as u32;
-        self.url.set_position(left + M, top + 12);
-        self.url.set_size(wide(cw - 2 * M - GO_W - 8, 60), 26);
-        self.go_btn.set_position(right - M - GO_W, top + 11);
+
+        let video = self.video();
+        self.quality.set_visible(video);
+        // right to left: Download, [quality], format
+        let go_x = right - M - GO_W;
+        let q_x = go_x - GAP - Q_W;
+        let fmt_x = if video { q_x - GAP - FMT_W } else { go_x - GAP - FMT_W };
+        self.go_btn.set_position(go_x, top + 11);
         self.go_btn.set_size(GO_W as u32, 28);
+        self.quality.set_position(q_x, top + 12);
+        self.quality.set_size(Q_W as u32, 26);
+        self.format.set_position(fmt_x, top + 12);
+        self.format.set_size(FMT_W as u32, 26);
+        self.url.set_position(left + M, top + 12);
+        self.url.set_size(wide(fmt_x - GAP - (left + M), 60), 26);
+
         self.progress.set_position(left + M, top + 48);
         self.progress.set_size(wide(cw - 2 * M, 10), 4);
         self.status.set_position(left + M, top + 62);
-        self.status.set_size(wide(cw - 2 * M - DIR_W - 8, 40), 22);
+        self.status.set_size(wide(cw - 2 * M - DIR_W - GAP, 40), 22);
         self.folder_btn.set_position(right - M - DIR_W, top + 59);
         self.folder_btn.set_size(DIR_W as u32, 26);
         dark::repaint(win);
     }
 
     fn init(&self) {
+        let s = settings::load();
+        let due = settings::now().saturating_sub(s.last_update) > 3 * 24 * 3600;
+        if let Some(i) = job::FORMATS.iter().position(|f| f.1 == s.format) {
+            self.format.set_selection(Some(i));
+        }
+        if let Some(i) = job::QUALITIES.iter().position(|q| q.1 == s.quality) {
+            self.quality.set_selection(Some(i));
+        }
+        *self.settings.borrow_mut() = Some(s);
+
         self.paint_black();
         self.layout();
         self.window.set_visible(true);
-        let s = settings::load();
-        let due = settings::now().saturating_sub(s.last_update) > 3 * 24 * 3600;
-        *self.settings.borrow_mut() = Some(s);
         self.url.set_focus();
 
         let shared = self.shared.clone();
@@ -218,6 +289,18 @@ impl App {
         self.on_notice();
     }
 
+    fn format_changed(&self) {
+        let id = self.format_id();
+        self.change(|s| s.format = id.into());
+        self.layout();
+        self.show_idle();
+    }
+
+    fn quality_changed(&self) {
+        let id = self.quality_id();
+        self.change(|s| s.quality = id.into());
+    }
+
     fn go(&self) {
         let (busy, ready, pid) = {
             let sh = self.shared.lock().unwrap();
@@ -252,6 +335,8 @@ impl App {
         self.on_notice();
 
         let folder = self.folder();
+        let format = self.format_id();
+        let quality = self.quality_id();
         let shared = self.shared.clone();
         let sender = self.notice.sender();
         std::thread::spawn(move || {
@@ -282,7 +367,7 @@ impl App {
                 drop(sh);
                 sender.notice();
             };
-            job::run(&url, &folder, &set_pid, &send);
+            job::run(&url, &folder, format, quality, &set_pid, &send);
         });
     }
 
@@ -294,6 +379,8 @@ impl App {
         self.go_btn.set_text(if sh.busy { "Abbrechen" } else { "Download" });
         self.go_btn.set_enabled(sh.ready);
         self.url.set_readonly(sh.busy);
+        self.format.set_enabled(!sh.busy);
+        self.quality.set_enabled(!sh.busy);
         self.folder_btn.set_enabled(!sh.busy);
         if let Some(f) = &sh.done_file {
             if self.last_file.borrow().as_deref() != Some(f.as_str()) {
@@ -310,14 +397,16 @@ impl App {
     }
 
     fn open_folder(&self) {
+        let folder = self.folder();
         let mut c = tools::hidden(tools::windows_exe("explorer.exe"));
         match self.last_file.borrow().as_deref() {
-            Some(f) if std::path::Path::new(f).exists() => {
+            // the last download, if it went into this folder
+            Some(f) if std::path::Path::new(f).exists() && f.starts_with(&folder) => {
                 use std::os::windows::process::CommandExt;
                 c.raw_arg(format!("/select,\"{f}\""));
             }
             _ => {
-                c.arg(self.folder());
+                c.arg(&folder);
             }
         }
         let _ = c.spawn();
@@ -328,15 +417,15 @@ impl App {
         if self.dialog.run(Some(&self.window)) {
             if let Ok(dir) = self.dialog.get_selected_item() {
                 let dir = dir.to_string_lossy().into_owned();
-                if let Some(s) = self.settings.borrow_mut().as_mut() {
-                    s.folder = dir;
-                    settings::save(s);
-                }
-                let busy = self.shared.lock().unwrap().busy;
-                if !busy {
-                    self.shared.lock().unwrap().text = self.idle_text();
-                    self.on_notice();
-                }
+                let video = self.video();
+                self.change(|s| {
+                    if video {
+                        s.video_folder = dir;
+                    } else {
+                        s.folder = dir;
+                    }
+                });
+                self.show_idle();
             }
         }
     }
