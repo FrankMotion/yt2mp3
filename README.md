@@ -6,7 +6,8 @@ Link rein, Musik oder Video raus – von **YouTube, TikTok und Instagram**. Ein 
 
 - **Musik:** MP3 (320 kbit/s), M4A, Opus, FLAC, WAV – mit Titel, Künstler und quadratischem Cover
 - **Video:** MP4, MKV, WebM – Qualität wählbar von 360p bis 4K
-- Natives Windows-Fenster in Rust: ca. 400 KB, ca. 3 MB RAM, Größe frei veränderbar
+- **Verlauf** der Downloads: Doppelklick spielt ab, Rechtsklick zeigt die Datei im Ordner oder entfernt sie aus der Liste
+- Natives Windows-Fenster in Rust: ca. 500 KB, ca. 4 MB RAM, Größe frei veränderbar
 - Keine Installation: `Corvus.exe` starten, fertig
 - Holt sich beim ersten Start seine Hilfsprogramme selbst und hält yt-dlp aktuell
 
@@ -41,11 +42,12 @@ Link rein, Musik oder Video raus – von **YouTube, TikTok und Instagram**. Ein 
 | Datei | Inhalt |
 |---|---|
 | `src/main.rs` | Fenster und Bedienung (native-windows-gui) |
-| `src/dark.rs` | schwarzer Look |
+| `src/dark.rs` | dunkler Look in Mondlicht-Farben, eigene runde Knöpfe |
 | `src/job.rs` | ein Download: Link prüfen, yt-dlp + FFmpeg, Fortschritt, Abbrechen |
 | `src/tools.rs` | Hilfsprogramme laden und prüfen (über Windows' `curl` und `tar`) |
 | `src/certs.rs` | Zertifikate für Instagram (funktioniert auch hinter Virenscannern) |
 | `src/settings.rs` | Ordner, Format und Qualität merken |
+| `src/history.rs` | Verlauf der Downloads |
 | `res/` | Icon und Windows-Manifest |
 
 ## Hinweise

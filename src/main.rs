@@ -1,8 +1,10 @@
-//! Corvus – a plain black Windows window: YouTube / TikTok / Instagram link in, music or video out.
+//! Corvus – a small dark Windows window: YouTube / TikTok / Instagram link in,
+//! music or video out, with a list of what was downloaded.
 #![windows_subsystem = "windows"]
 
 mod certs;
 mod dark;
+mod history;
 mod job;
 mod settings;
 mod tools;
@@ -33,12 +35,12 @@ pub struct App {
     #[nwg_resource(source_embed: Some(&data.embed), source_embed_id: 1)]
     icon: nwg::Icon,
 
-    // starts hidden; init() paints it black, then shows it (no white flash)
-    #[nwg_control(size: (600, 96), center: true, title: "Corvus", icon: Some(&data.icon), flags: "WINDOW|MINIMIZE_BOX|MAXIMIZE_BOX|RESIZABLE")]
+    // starts hidden; init() paints it, then shows it (no white flash)
+    #[nwg_control(size: (640, 380), center: true, title: "Corvus", icon: Some(&data.icon), flags: "WINDOW|MINIMIZE_BOX|MAXIMIZE_BOX|RESIZABLE")]
     #[nwg_events(OnWindowClose: [App::exit], OnInit: [App::init], OnResize: [App::layout], OnWindowMaximize: [App::layout])]
     window: nwg::Window,
 
-    #[nwg_control(parent: window, position: (12, 12), size: (300, 26), placeholder_text: Some("Link von YouTube, TikTok oder Instagram"))]
+    #[nwg_control(parent: window, size: (300, 28), placeholder_text: Some("Link von YouTube, TikTok oder Instagram"))]
     #[nwg_events(OnKeyEnter: [App::go])]
     url: nwg::TextInput,
 
@@ -60,9 +62,16 @@ pub struct App {
     #[nwg_control(parent: window, text: "", size: (330, 22))]
     status: nwg::Label,
 
-    #[nwg_control(parent: window, text: "Ordner", size: (78, 26))]
+    #[nwg_control(parent: window, text: "Ordner", size: (78, 28))]
     #[nwg_events(OnButtonClick: [App::folder_menu_show])]
     folder_btn: nwg::Button,
+
+    #[nwg_control(parent: window, text: "Verlauf", size: (200, 20))]
+    hist_label: nwg::Label,
+
+    #[nwg_control(parent: window, size: (400, 200), list_style: nwg::ListViewStyle::Detailed, flags: "VISIBLE|SINGLE_SELECTION|NO_HEADER|TAB_STOP", ex_flags: nwg::ListViewExFlags::FULL_ROW_SELECT)]
+    #[nwg_events(OnListViewDoubleClick: [App::hist_play], OnListViewRightClick: [App::hist_menu_show])]
+    history: nwg::ListView,
 
     #[nwg_control(parent: window, popup: true)]
     folder_menu: nwg::Menu,
@@ -75,6 +84,28 @@ pub struct App {
     #[nwg_events(OnMenuItemSelected: [App::change_folder])]
     menu_change: nwg::MenuItem,
 
+    #[nwg_control(parent: window, popup: true)]
+    hist_menu: nwg::Menu,
+
+    #[nwg_control(parent: hist_menu, text: "Abspielen")]
+    #[nwg_events(OnMenuItemSelected: [App::hist_play])]
+    hist_open: nwg::MenuItem,
+
+    #[nwg_control(parent: hist_menu, text: "Im Ordner zeigen")]
+    #[nwg_events(OnMenuItemSelected: [App::hist_reveal])]
+    hist_reveal_item: nwg::MenuItem,
+
+    #[nwg_control(parent: hist_menu, text: "Aus Verlauf entfernen")]
+    #[nwg_events(OnMenuItemSelected: [App::hist_remove])]
+    hist_remove_item: nwg::MenuItem,
+
+    #[nwg_control(parent: hist_menu)]
+    hist_sep: nwg::MenuSeparator,
+
+    #[nwg_control(parent: hist_menu, text: "Verlauf leeren")]
+    #[nwg_events(OnMenuItemSelected: [App::hist_clear])]
+    hist_clear_item: nwg::MenuItem,
+
     #[nwg_resource(title: "Ordner wählen", action: nwg::FileDialogAction::OpenDirectory)]
     dialog: nwg::FileDialog,
 
@@ -85,12 +116,25 @@ pub struct App {
     shared: Arc<Mutex<Shared>>,
     settings: RefCell<Option<settings::Settings>>,
     last_file: RefCell<Option<String>>,
+    entries: RefCell<Vec<history::Entry>>,
     dark_hook: RefCell<Option<nwg::RawEventHandler>>,
     frame_hooks: RefCell<Vec<nwg::RawEventHandler>>,
 }
 
 fn hwnd(h: &nwg::ControlHandle) -> *mut std::ffi::c_void {
     h.hwnd().map(|p| p as *mut std::ffi::c_void).unwrap_or(std::ptr::null_mut())
+}
+
+/// Opens a file with its default program, or shows it selected in Explorer.
+fn open_in_explorer(path: &str, select: bool) {
+    let mut c = tools::hidden(tools::windows_exe("explorer.exe"));
+    if select {
+        use std::os::windows::process::CommandExt;
+        c.raw_arg(format!("/select,\"{path}\""));
+    } else {
+        c.arg(path);
+    }
+    let _ = c.spawn();
 }
 
 impl App {
@@ -140,35 +184,45 @@ impl App {
         }
     }
 
-    /// Black title bar, dark field, lists and buttons, white-on-dark bar.
-    fn paint_black(&self) {
+    /// Dark title bar, framed field, self-drawn buttons, dark list.
+    fn paint(&self) {
         let edit = hwnd(&self.url.handle);
         dark::title_bar(hwnd(&self.window.handle));
-        dark::theme(hwnd(&self.go_btn.handle), "DarkMode_Explorer");
-        dark::theme(hwnd(&self.folder_btn.handle), "DarkMode_Explorer");
+        dark::owner_draw(hwnd(&self.go_btn.handle));
+        dark::owner_draw(hwnd(&self.folder_btn.handle));
         dark::theme(hwnd(&self.format.handle), "DarkMode_CFD");
         dark::theme(hwnd(&self.quality.handle), "DarkMode_CFD");
         dark::theme(edit, "DarkMode_CFD");
         dark::progress(hwnd(&self.progress.handle));
-        // smallest size: full height, a bit narrower than the start width
+        dark::list(hwnd(&self.history.handle));
+        // smallest size: a bit narrower and lower than the start size
         let (w, h) = dark::window_pixels(hwnd(&self.window.handle));
-        let paint = dark::Paint::new((w * 85 / 100, h));
+        let paint = dark::Paint::new((w * 85 / 100, h * 60 / 100), hwnd(&self.go_btn.handle));
         let edit_addr = edit as usize;
         let hook = nwg::bind_raw_event_handler(&self.window.handle, 0x1_0001, move |h, msg, w, l| {
             paint.handle(h as *mut std::ffi::c_void, msg, w, l, edit_addr as *mut std::ffi::c_void)
         });
         *self.dark_hook.borrow_mut() = hook.ok();
 
-        // frames of the field, the status line and the bar: dark, never white
+        // frames: the link field gets a thin outline, the rest just stays dark
+        let border = dark::brush(dark::BORDER);
         let parts = [
-            (&self.url.handle, dark::FIELD),
-            (&self.status.handle, dark::BG),
-            (&self.progress.handle, dark::BG),
+            (&self.url.handle, dark::FIELD, border),
+            (&self.status.handle, dark::BG, 0),
+            (&self.hist_label.handle, dark::BG, 0),
+            (&self.progress.handle, dark::BG, 0),
         ];
-        for (i, (handle, color)) in parts.into_iter().enumerate() {
-            let brush = dark::brush(color);
+        // the history list paints itself on our dark colour, not white
+        let list_fill = dark::brush(dark::FIELD);
+        if let Ok(hook) = nwg::bind_raw_event_handler(&self.history.handle, 0x1_0020, move |h, msg, _w, _l| {
+            dark::list_paint(h as *mut std::ffi::c_void, msg, list_fill)
+        }) {
+            self.frame_hooks.borrow_mut().push(hook);
+        }
+        for (i, (handle, color, edge)) in parts.into_iter().enumerate() {
+            let fill = dark::brush(color);
             let hook = nwg::bind_raw_event_handler(handle, 0x1_0010 + i, move |h, msg, _w, _l| {
-                dark::frame(h as *mut std::ffi::c_void, msg, brush)
+                dark::frame(h as *mut std::ffi::c_void, msg, fill, edge)
             });
             if let Ok(hook) = hook {
                 self.frame_hooks.borrow_mut().push(hook);
@@ -176,9 +230,9 @@ impl App {
         }
     }
 
-    /// Fits the controls to the window: the link field, bar and status grow
-    /// with the width, the lists and buttons stay on the right, the block
-    /// stays vertically centred. The quality list only shows for video.
+    /// Fits the controls to the window: link field, bar, status and history
+    /// grow with the width, lists and buttons stay on the right, the history
+    /// fills the height. The quality list only shows for video.
     fn layout(&self) {
         let win = hwnd(&self.window.handle);
         if win.is_null() {
@@ -188,40 +242,50 @@ impl App {
         if w <= 0 || h <= 0 {
             return; // minimised
         }
-        const M: i32 = 12; // margin
+        const M: i32 = 16; // margin
         const GAP: i32 = 8;
         const FMT_W: i32 = 116;
         const Q_W: i32 = 78;
-        const GO_W: i32 = 100;
-        const DIR_W: i32 = 78;
+        const GO_W: i32 = 104;
+        const DIR_W: i32 = 84;
+        const TIME_W: i32 = 64;
         const MAX_W: i32 = 960; // content never wider than this; centred beyond
         let cw = w.min(MAX_W);
         let left = (w - cw) / 2;
         let right = left + cw;
-        let top = ((h - 96) / 2).max(0);
         let wide = |x: i32, min: i32| x.max(min) as u32;
 
         let video = self.video();
         self.quality.set_visible(video);
-        // right to left: Download, [quality], format
+        // row 1, right to left: Download, [quality], format; the link takes the rest
         let go_x = right - M - GO_W;
         let q_x = go_x - GAP - Q_W;
         let fmt_x = if video { q_x - GAP - FMT_W } else { go_x - GAP - FMT_W };
-        self.go_btn.set_position(go_x, top + 11);
+        self.go_btn.set_position(go_x, M);
         self.go_btn.set_size(GO_W as u32, 28);
-        self.quality.set_position(q_x, top + 12);
+        self.quality.set_position(q_x, M + 1);
         self.quality.set_size(Q_W as u32, 26);
-        self.format.set_position(fmt_x, top + 12);
+        self.format.set_position(fmt_x, M + 1);
         self.format.set_size(FMT_W as u32, 26);
-        self.url.set_position(left + M, top + 12);
-        self.url.set_size(wide(fmt_x - GAP - (left + M), 60), 26);
-
-        self.progress.set_position(left + M, top + 48);
-        self.progress.set_size(wide(cw - 2 * M, 10), 4);
-        self.status.set_position(left + M, top + 62);
+        self.url.set_position(left + M, M);
+        self.url.set_size(wide(fmt_x - GAP - (left + M), 60), 28);
+        // row 2: thin progress bar
+        self.progress.set_position(left + M, M + 40);
+        self.progress.set_size(wide(cw - 2 * M, 10), 3);
+        // row 3: status line and folder button
+        self.status.set_position(left + M, M + 54);
         self.status.set_size(wide(cw - 2 * M - DIR_W - GAP, 40), 22);
-        self.folder_btn.set_position(right - M - DIR_W, top + 59);
-        self.folder_btn.set_size(DIR_W as u32, 26);
+        self.folder_btn.set_position(right - M - DIR_W, M + 50);
+        self.folder_btn.set_size(DIR_W as u32, 28);
+        // history fills the rest
+        let list_top = M + 108;
+        self.hist_label.set_position(left + M, M + 88);
+        self.hist_label.set_size(wide(cw - 2 * M, 40), 18);
+        self.history.set_position(left + M, list_top);
+        let list_w = wide(cw - 2 * M, 100);
+        self.history.set_size(list_w, wide(h - list_top - M, 40));
+        self.history.set_column_width(0, TIME_W as isize);
+        self.history.set_column_width(1, (list_w as i32 - TIME_W - 22).max(60) as isize);
         dark::repaint(win);
     }
 
@@ -236,7 +300,22 @@ impl App {
         }
         *self.settings.borrow_mut() = Some(s);
 
-        self.paint_black();
+        self.history.insert_column(nwg::InsertListViewColumn {
+            index: Some(0),
+            fmt: None,
+            width: Some(64),
+            text: Some("Wann".into()),
+        });
+        self.history.insert_column(nwg::InsertListViewColumn {
+            index: Some(1),
+            fmt: None,
+            width: Some(400),
+            text: Some("Datei".into()),
+        });
+        *self.entries.borrow_mut() = history::load();
+        self.refresh_history();
+
+        self.paint();
         self.layout();
         self.window.set_visible(true);
         self.url.set_focus();
@@ -374,23 +453,90 @@ impl App {
 
     /// Worker thread poked us: copy its state into the controls.
     fn on_notice(&self) {
-        let sh = self.shared.lock().unwrap();
-        self.status.set_text(&sh.text);
-        self.progress.set_pos(sh.percent);
-        self.go_btn.set_text(if sh.busy { "Abbrechen" } else { "Download" });
-        self.go_btn.set_enabled(sh.ready);
-        self.url.set_readonly(sh.busy);
-        self.format.set_enabled(!sh.busy);
-        self.quality.set_enabled(!sh.busy);
-        self.folder_btn.set_enabled(!sh.busy);
-        if let Some(f) = &sh.done_file {
-            if self.last_file.borrow().as_deref() != Some(f.as_str()) {
-                *self.last_file.borrow_mut() = Some(f.clone());
-                self.url.set_text("");
-                self.url.set_focus();
+        let new_file = {
+            let sh = self.shared.lock().unwrap();
+            self.status.set_text(&sh.text);
+            self.progress.set_pos(sh.percent);
+            self.go_btn.set_text(if sh.busy { "Abbrechen" } else { "Download" });
+            self.go_btn.set_enabled(sh.ready);
+            self.url.set_readonly(sh.busy);
+            self.format.set_enabled(!sh.busy);
+            self.quality.set_enabled(!sh.busy);
+            self.folder_btn.set_enabled(!sh.busy);
+            sh.done_file.clone().filter(|f| self.last_file.borrow().as_deref() != Some(f.as_str()))
+        };
+        if let Some(f) = new_file {
+            *self.last_file.borrow_mut() = Some(f.clone());
+            self.url.set_text("");
+            self.url.set_focus();
+            self.entries.borrow_mut().insert(0, history::Entry { when: history::now(), path: f });
+            history::save(&self.entries.borrow());
+            self.refresh_history();
+        }
+    }
+
+    // ---------- history ----------
+
+    fn refresh_history(&self) {
+        let today = history::now().split(' ').next().unwrap_or_default().to_string();
+        self.history.clear();
+        for e in self.entries.borrow().iter() {
+            let row = history::row(e, &today);
+            self.history.insert_items_row(None, &row);
+        }
+    }
+
+    fn selected_entry(&self) -> Option<(usize, history::Entry)> {
+        let i = self.history.selected_item()?;
+        self.entries.borrow().get(i).cloned().map(|e| (i, e))
+    }
+
+    fn hist_play(&self) {
+        if let Some((_, e)) = self.selected_entry() {
+            if std::path::Path::new(&e.path).exists() {
+                open_in_explorer(&e.path, false);
+            } else {
+                self.status.set_text("Datei gibt es nicht mehr");
             }
         }
     }
+
+    fn hist_reveal(&self) {
+        if let Some((_, e)) = self.selected_entry() {
+            let p = std::path::Path::new(&e.path);
+            if p.exists() {
+                open_in_explorer(&e.path, true);
+            } else if let Some(dir) = p.parent().filter(|d| d.exists()) {
+                open_in_explorer(&dir.to_string_lossy(), false);
+            }
+        }
+    }
+
+    fn hist_remove(&self) {
+        if let Some((i, _)) = self.selected_entry() {
+            self.entries.borrow_mut().remove(i);
+            history::save(&self.entries.borrow());
+            self.refresh_history();
+        }
+    }
+
+    fn hist_clear(&self) {
+        self.entries.borrow_mut().clear();
+        history::save(&[]);
+        self.refresh_history();
+    }
+
+    fn hist_menu_show(&self) {
+        let has = self.selected_entry().is_some();
+        self.hist_open.set_enabled(has);
+        self.hist_reveal_item.set_enabled(has);
+        self.hist_remove_item.set_enabled(has);
+        self.hist_clear_item.set_enabled(!self.entries.borrow().is_empty());
+        let (x, y) = nwg::GlobalCursor::position();
+        self.hist_menu.popup(x, y);
+    }
+
+    // ---------- folder ----------
 
     fn folder_menu_show(&self) {
         let (x, y) = nwg::GlobalCursor::position();
@@ -399,18 +545,11 @@ impl App {
 
     fn open_folder(&self) {
         let folder = self.folder();
-        let mut c = tools::hidden(tools::windows_exe("explorer.exe"));
         match self.last_file.borrow().as_deref() {
             // the last download, if it went into this folder
-            Some(f) if std::path::Path::new(f).exists() && f.starts_with(&folder) => {
-                use std::os::windows::process::CommandExt;
-                c.raw_arg(format!("/select,\"{f}\""));
-            }
-            _ => {
-                c.arg(&folder);
-            }
+            Some(f) if std::path::Path::new(f).exists() && f.starts_with(&folder) => open_in_explorer(f, true),
+            _ => open_in_explorer(&folder, false),
         }
-        let _ = c.spawn();
     }
 
     fn change_folder(&self) {
@@ -444,7 +583,7 @@ fn main() {
     dark::dark_menus();
     nwg::init().expect("Windows-Oberfläche konnte nicht starten");
     let mut font = nwg::Font::default();
-    if nwg::Font::builder().family("Segoe UI").size(16).build(&mut font).is_ok() {
+    if nwg::Font::builder().family("Segoe UI").size(17).build(&mut font).is_ok() {
         let _ = nwg::Font::set_global_default(Some(font));
     }
     let _app = App::build_ui(Default::default()).expect("Fenster konnte nicht erstellt werden");
