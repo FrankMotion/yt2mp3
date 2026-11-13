@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <!-- F: black perched raven silhouette on a light tile -->
+  <rect x="8" y="8" width="240" height="240" rx="56" fill="#ececef"/>
+  <path fill="#0a0a0c" d="M 192 70 C 210 72 228 80 240 94 C 226 98 210 100 196 101 L 203 110 L 193 111 L 199 121 L 189 122 L 194 133 C 190 156 178 174 158 184 C 142 191 126 193 110 193 L 56 228 L 40 220 L 90 172 C 98 136 124 104 158 90 C 168 78 180 70 192 70 Z"/>
+  <path stroke="#0a0a0c" stroke-width="7" stroke-linecap="round" fill="none" d="M 148 188 L 144 213 M 164 183 L 168 213 M 104 216 L 222 216"/>
+</svg>

@@ -13,11 +13,20 @@ pub enum Update {
     Failed(String),
 }
 
-/// Only real YouTube links: the host itself must be YouTube (not just appear
-/// somewhere in the text). Returns the trimmed link.
+/// yt-dlp extractors the app may use: single YouTube videos, TikToks
+/// (also vm.tiktok.com short links) and Instagram reels/posts.
+pub const EXTRACTORS: &str = "youtube,TikTok,vm.tiktok,Instagram";
+
+/// The sites a link may point to (the host itself, not text in the link).
+fn supported_host(host: &str) -> bool {
+    let is = |domain: &str| host == domain || host.ends_with(&format!(".{domain}"));
+    is("youtube.com") || host == "youtu.be" || is("tiktok.com") || is("instagram.com") || host == "instagr.am"
+}
+
+/// Only real YouTube, TikTok or Instagram links. Returns the trimmed link.
 pub fn check_url(url: &str) -> Result<String, String> {
     let u = url.trim();
-    let bad = || "Kein YouTube-Link".to_string();
+    let bad = || "Link wird nicht unterstützt (YouTube, TikTok, Instagram)".to_string();
     if u.len() > 2000 || u.chars().any(|c| c.is_whitespace() || c.is_control()) {
         return Err(bad());
     }
@@ -31,8 +40,7 @@ pub fn check_url(url: &str) -> Result<String, String> {
         return Err(bad()); // "https://youtube.com@evil.example/" tricks
     }
     let host = authority.split(':').next().unwrap_or_default();
-    let youtube = host == "youtu.be" || host == "youtube.com" || host.ends_with(".youtube.com");
-    if !youtube {
+    if !supported_host(host) {
         return Err(bad());
     }
     if rest.contains("/playlist?") {
@@ -52,6 +60,13 @@ fn friendly(err: &str) -> String {
         ("http error 429", "Zu viele Anfragen – kurz warten"),
         ("is live", "Livestreams gehen nicht"),
         ("getaddrinfo failed", "Keine Internetverbindung"),
+        ("ip address is blocked", "In deinem Land gesperrt"),
+        ("login required", "Instagram will eine Anmeldung – nur öffentliche Reels/Posts gehen"),
+        ("requested content is not available", "Nicht öffentlich oder gelöscht"),
+        ("rate-limit", "Instagram blockt gerade – später nochmal"),
+        ("unsupported url", "Diese Art Link geht nicht – bitte direkt zum Video/Reel"),
+        ("no suitable extractor", "Diese Art Link geht nicht – bitte direkt zum Video/Reel"),
+        ("no video formats found", "In dem Beitrag ist kein Video"),
     ];
     for (needle, msg) in rules {
         if e.contains(needle) {
@@ -162,8 +177,8 @@ pub fn run(
     let result = work.join("result.txt");
 
     let mut c = tools::hidden(tools::ytdlp());
-    // Locked down: no config files, no plugins, no --exec, YouTube extractor only.
-    c.args(["--ignore-config", "--no-plugin-dirs", "--no-exec", "--use-extractors", "youtube"])
+    // Locked down: no config files, no plugins, no --exec, only the supported sites.
+    c.args(["--ignore-config", "--no-plugin-dirs", "--no-exec", "--use-extractors", EXTRACTORS])
         .args(["--no-playlist", "--newline", "--no-mtime", "--windows-filenames"])
         // use the Windows certificate store: works behind antivirus HTTPS scanning
         .args(["--compat-options", "no-certifi"])
@@ -175,7 +190,8 @@ pub fn run(
         .arg(folder)
         .arg("-P")
         .arg(format!("temp:{}", work.display()))
-        .args(["-o", "%(title)s.%(ext)s"])
+        // TikTok/Instagram "titles" are whole captions: cap the file name
+        .args(["-o", "%(title).120B.%(ext)s"])
         .args(format_args(format, quality))
         .args(["--progress-template", "download:[[P]]%(progress.downloaded_bytes)s|%(progress.total_bytes)s|%(progress.total_bytes_estimate)s|%(progress.speed)s"])
         .arg("--print-to-file")
@@ -187,6 +203,10 @@ pub fn run(
         .env("PYTHONUTF8", "1")
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped());
+    // certificates for the browser-imitating connections (Instagram), see certs.rs
+    if let Some(bundle) = crate::certs::bundle() {
+        c.env("CURL_CA_BUNDLE", bundle);
+    }
 
     let mut child = match c.spawn() {
         Ok(ch) => ch,

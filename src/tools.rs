@@ -1,9 +1,10 @@
 //! The helper programs, downloaded once into %LOCALAPPDATA%\Corvus\bin
 //! with Windows' own curl.exe and tar.exe, each checked against the
 //! SHA-256 checksum its project publishes:
-//!   yt-dlp.exe              fetches the audio from YouTube
+//!   yt-dlp.exe              fetches audio/video from YouTube, TikTok, Instagram
 //!   ffmpeg.exe, ffprobe.exe convert to MP3, embed title and cover
 //!   deno.exe                JavaScript runtime yt-dlp needs for YouTube
+//!   cacert.pem              Mozilla root certificates (see certs.rs)
 
 use sha2::{Digest, Sha256};
 use std::io::Read;
@@ -22,7 +23,7 @@ struct Tool {
     files: &'static [&'static str],
 }
 
-const TOOLS: [Tool; 3] = [
+const TOOLS: [Tool; 4] = [
     Tool {
         label: "yt-dlp",
         url: "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe",
@@ -40,6 +41,13 @@ const TOOLS: [Tool; 3] = [
         url: "https://github.com/denoland/deno/releases/latest/download/deno-x86_64-pc-windows-msvc.zip",
         sums: "https://github.com/denoland/deno/releases/latest/download/deno-x86_64-pc-windows-msvc.zip.sha256sum",
         files: &["deno.exe"],
+    },
+    Tool {
+        // Mozilla's trusted root certificates, see certs.rs
+        label: "Zertifikate",
+        url: "https://curl.se/ca/cacert.pem",
+        sums: "https://curl.se/ca/cacert.pem.sha256",
+        files: &["cacert.pem"],
     },
 ];
 

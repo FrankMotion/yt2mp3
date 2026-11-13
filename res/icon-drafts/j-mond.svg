@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <defs>
+    <linearGradient id="night" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#27314f"/><stop offset="1" stop-color="#0c0f1d"/></linearGradient>
+    <radialGradient id="moon" cx="0.42" cy="0.38" r="0.7"><stop offset="0" stop-color="#fdf9ec"/><stop offset="1" stop-color="#d8d0b8"/></radialGradient>
+    <clipPath id="tile"><rect x="8" y="8" width="240" height="240" rx="56"/></clipPath>
+  </defs>
+  <rect x="8" y="8" width="240" height="240" rx="56" fill="url(#night)"/>
+  <circle cx="124" cy="116" r="82" fill="url(#moon)"/>
+  <g clip-path="url(#tile)"><g transform="translate(12 -4) scale(0.92)">
+    <path fill="#0a0a0c" stroke="#0a0a0c" stroke-width="1" stroke-linejoin="miter" d="M 36 86 L 86 62 L 104 54 L 128 64 L 136 86 L 164 104 L 182 142 L 180 190 L 208 238 L 190 244 L 146 196 L 118 180 L 98 140 L 96 114 L 86 108 L 92 102 L 82 96 L 88 92 L 84 86 Z"/>
+    <path stroke="#e9e3d0" stroke-width="3.2" stroke-linecap="butt" fill="none" d="M 132 92 L 170 186 M 150 106 L 176 168"/>
+    <path stroke="#0a0a0c" stroke-width="5" stroke-linecap="square" fill="none" d="M 136 190 L 132 216 M 150 195 L 153 216 M 122 217 L 140 216 M 145 217 L 164 216"/>
+    <path stroke="#0a0a0c" stroke-width="6" stroke-linecap="square" fill="none" d="M 26 222 L 234 208"/>
+  </g></g>
+</svg>

@@ -1,6 +1,7 @@
-//! Corvus – a plain black Windows window: YouTube link in, music or video out.
+//! Corvus – a plain black Windows window: YouTube / TikTok / Instagram link in, music or video out.
 #![windows_subsystem = "windows"]
 
+mod certs;
 mod dark;
 mod job;
 mod settings;
@@ -37,7 +38,7 @@ pub struct App {
     #[nwg_events(OnWindowClose: [App::exit], OnInit: [App::init], OnResize: [App::layout], OnWindowMaximize: [App::layout])]
     window: nwg::Window,
 
-    #[nwg_control(parent: window, position: (12, 12), size: (300, 26), placeholder_text: Some("YouTube-Link"))]
+    #[nwg_control(parent: window, position: (12, 12), size: (300, 26), placeholder_text: Some("Link von YouTube, TikTok oder Instagram"))]
     #[nwg_events(OnKeyEnter: [App::go])]
     url: nwg::TextInput,
 

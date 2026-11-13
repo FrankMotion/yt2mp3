@@ -1,6 +1,6 @@
 # Corvus
 
-YouTube-Link rein, Musik oder Video raus. Ein kleines schwarzes Windows-Fenster, sonst nichts.
+Link rein, Musik oder Video raus – von **YouTube, TikTok und Instagram**. Ein kleines schwarzes Windows-Fenster, sonst nichts.
 
 - **Musik:** MP3 (320 kbit/s), M4A, Opus, FLAC, WAV – mit Titel, Künstler und quadratischem Cover
 - **Video:** MP4, MKV, WebM – Qualität wählbar von 360p bis 4K
@@ -11,8 +11,8 @@ YouTube-Link rein, Musik oder Video raus. Ein kleines schwarzes Windows-Fenster,
 ## Benutzen
 
 1. `Corvus.exe` unter [Releases](../../releases) herunterladen und starten
-2. Beim ersten Start lädt die App einmalig ca. 200 MB Hilfsprogramme (yt-dlp, FFmpeg, Deno)
-3. Link einfügen, Format wählen (bei Video zusätzlich die Qualität) → **Download**
+2. Beim ersten Start lädt die App einmalig ca. 200 MB Hilfsprogramme (yt-dlp, FFmpeg, Deno, Zertifikatsliste)
+3. Link einfügen (YouTube-Video, TikTok, Instagram-Reel oder -Post), Format wählen (bei Video zusätzlich die Qualität) → **Download**
 4. **Ordner** → *Öffnen* zeigt die Datei, *Ändern …* wählt den Speicherort
    (Musik und Videos haben je einen eigenen Ordner)
 
@@ -26,8 +26,8 @@ YouTube-Link rein, Musik oder Video raus. Ein kleines schwarzes Windows-Fenster,
 
 ## Sicherheit
 
-- Nimmt nur echte YouTube-Links an (der Server muss YouTube sein, Tricks wie
-  `youtube.com@andere-seite` werden abgelehnt) und lässt yt-dlp nur den YouTube-Teil benutzen.
+- Nimmt nur echte Links von YouTube, TikTok und Instagram an (der Server muss stimmen, Tricks wie
+  `youtube.com@andere-seite` werden abgelehnt) und lässt yt-dlp nur diese drei Seiten benutzen.
 - yt-dlp läuft ohne Konfigurationsdateien, ohne Plugins und ohne `--exec`.
 - Die Hilfsprogramme kommen nur von den offiziellen GitHub-Seiten der Projekte (nur HTTPS) und
   werden vor der Benutzung mit deren veröffentlichter SHA-256-Prüfsumme verglichen.
@@ -42,5 +42,11 @@ YouTube-Link rein, Musik oder Video raus. Ein kleines schwarzes Windows-Fenster,
 | `src/dark.rs` | schwarzer Look |
 | `src/job.rs` | ein Download: Link prüfen, yt-dlp + FFmpeg, Fortschritt, Abbrechen |
 | `src/tools.rs` | Hilfsprogramme laden und prüfen (über Windows' `curl` und `tar`) |
+| `src/certs.rs` | Zertifikate für Instagram (funktioniert auch hinter Virenscannern) |
 | `src/settings.rs` | Ordner, Format und Qualität merken |
 | `res/` | Icon und Windows-Manifest |
+
+## Hinweise
+
+- **Instagram:** Nur öffentliche Reels und Posts. Stories und private Konten brauchen eine Anmeldung und gehen nicht.
+- **TikTok:** Direkt-Links zu einem Video (auch die kurzen `vm.tiktok.com`-Links). Profilseiten gehen nicht.
