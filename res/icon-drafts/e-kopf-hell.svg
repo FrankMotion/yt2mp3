@@ -1,5 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
-  <!-- E: black raven head silhouette on a light tile -->
-  <rect x="8" y="8" width="240" height="240" rx="56" fill="#ececef"/>
-  <path fill="#0a0a0c" d="M 70 222 C 62 178 66 136 92 108 C 108 92 128 84 150 84 C 166 84 178 88 190 94 C 210 104 228 116 242 132 C 224 134 206 132 190 130 L 196 142 L 182 142 L 190 156 L 174 156 L 180 172 L 162 170 L 168 188 L 148 186 L 152 204 L 132 200 L 134 222 Z"/>
-</svg>
