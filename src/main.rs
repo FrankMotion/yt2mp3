@@ -38,6 +38,8 @@ struct Shared {
     queue: VecDeque<QueueItem>,
     /// finished files the UI has not put into the history yet
     done_files: Vec<String>,
+    /// a newer Corvus on GitHub ("1.8.0"), found by the start-up check
+    update: Option<String>,
 }
 
 /// "…  ·  noch 3" while links are waiting.
@@ -83,6 +85,11 @@ pub struct App {
     #[nwg_control(parent: window, text: "Ordner", size: (78, 28))]
     #[nwg_events(OnButtonClick: [App::folder_menu_show])]
     folder_btn: nwg::Button,
+
+    // only shown when GitHub has a newer version
+    #[nwg_control(parent: window, text: "Update", size: (120, 28), flags: "NONE")]
+    #[nwg_events(OnButtonClick: [App::open_update])]
+    update_btn: nwg::Button,
 
     #[nwg_control(parent: window, text: "Verlauf", size: (200, 20))]
     hist_label: nwg::Label,
@@ -208,6 +215,7 @@ impl App {
         dark::title_bar(hwnd(&self.window.handle));
         dark::owner_draw(hwnd(&self.go_btn.handle));
         dark::owner_draw(hwnd(&self.folder_btn.handle));
+        dark::owner_draw(hwnd(&self.update_btn.handle));
         dark::theme(hwnd(&self.format.handle), "DarkMode_CFD");
         dark::theme(hwnd(&self.quality.handle), "DarkMode_CFD");
         dark::theme(edit, "DarkMode_CFD");
@@ -290,9 +298,15 @@ impl App {
         // row 2: thin progress bar
         self.progress.set_position(left + M, M + 40);
         self.progress.set_size(wide(cw - 2 * M, 10), 3);
-        // row 3: status line and folder button
+        // row 3: status line, [update], folder button
+        const UPD_W: i32 = 120;
+        let update = self.update_btn.visible();
+        let upd_x = right - M - DIR_W - GAP - UPD_W;
+        let status_right = if update { upd_x - GAP } else { right - M - DIR_W - GAP };
         self.status.set_position(left + M, M + 54);
-        self.status.set_size(wide(cw - 2 * M - DIR_W - GAP, 40), 22);
+        self.status.set_size(wide(status_right - (left + M), 40), 22);
+        self.update_btn.set_position(upd_x, M + 50);
+        self.update_btn.set_size(UPD_W as u32, 28);
         self.folder_btn.set_position(right - M - DIR_W, M + 50);
         self.folder_btn.set_size(DIR_W as u32, 28);
         // history fills the rest
@@ -337,6 +351,18 @@ impl App {
         self.layout();
         self.window.set_visible(true);
         self.url.set_focus();
+
+        // is there a newer Corvus on GitHub? (quietly, in the background)
+        {
+            let shared = self.shared.clone();
+            let sender = self.notice.sender();
+            std::thread::spawn(move || {
+                if let Some(v) = tools::newer_release() {
+                    shared.lock().unwrap().update = Some(v);
+                    sender.notice();
+                }
+            });
+        }
 
         let shared = self.shared.clone();
         let sender = self.notice.sender();
@@ -527,14 +553,21 @@ impl App {
 
     /// Worker thread poked us: copy its state into the controls.
     fn on_notice(&self) {
-        let new_files = {
+        let (new_files, update) = {
             let mut sh = self.shared.lock().unwrap();
             self.status.set_text(&sh.text);
             self.progress.set_pos(sh.percent);
             self.go_btn.set_enabled(sh.ready);
-            std::mem::take(&mut sh.done_files)
+            (std::mem::take(&mut sh.done_files), sh.update.clone())
         };
         self.update_go_label();
+        if let Some(v) = update {
+            if !self.update_btn.visible() {
+                self.update_btn.set_text(&format!("Update {v}"));
+                self.update_btn.set_visible(true);
+                self.layout();
+            }
+        }
         if !new_files.is_empty() {
             let when = history::now();
             for f in &new_files {
@@ -605,6 +638,11 @@ impl App {
         self.hist_clear_item.set_enabled(!self.entries.borrow().is_empty());
         let (x, y) = nwg::GlobalCursor::position();
         self.hist_menu.popup(x, y);
+    }
+
+    /// Opens the newest release on GitHub in the browser.
+    fn open_update(&self) {
+        open_in_explorer(&format!("https://github.com/{}/releases/latest", tools::REPO), false);
     }
 
     // ---------- folder ----------

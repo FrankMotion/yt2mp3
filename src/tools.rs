@@ -263,3 +263,29 @@ pub fn update_ytdlp() -> Result<String, String> {
     let v = hidden(ytdlp()).arg("--version").output().map_err(|e| e.to_string())?;
     Ok(String::from_utf8_lossy(&v.stdout).trim().to_string())
 }
+
+/// Where Corvus' own releases live.
+pub const REPO: &str = "FrankMotion/corvus";
+
+/// "v1.8.0" / "1.8.0" -> [1, 8, 0]
+fn version_numbers(v: &str) -> Vec<u32> {
+    v.trim().trim_start_matches(['v', 'V']).split('.').map(|p| p.trim().parse().unwrap_or(0)).collect()
+}
+
+/// The newest release on GitHub, if it is newer than this build ("1.8.0").
+/// Any problem (offline, GitHub busy) simply means "no update".
+pub fn newer_release() -> Option<String> {
+    let out = curl()
+        .args(["--max-time", "10", "-H", "Accept: application/vnd.github+json", "-H", "User-Agent: Corvus"])
+        .arg(format!("https://api.github.com/repos/{REPO}/releases/latest"))
+        .output()
+        .ok()?;
+    let body = String::from_utf8_lossy(&out.stdout);
+    // "tag_name": "v1.8.0"
+    let rest = &body[body.find("\"tag_name\"")? + 10..];
+    let start = rest.find('"')? + 1;
+    let tag = &rest[start..start + rest[start..].find('"')?];
+    let latest = version_numbers(tag);
+    let mine = version_numbers(env!("CARGO_PKG_VERSION"));
+    (latest > mine).then(|| tag.trim_start_matches(['v', 'V']).to_string())
+}

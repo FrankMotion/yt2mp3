@@ -11,7 +11,7 @@ Link rein, Musik oder Video raus – von **YouTube, TikTok und Instagram**. Ein 
 - **Verlauf** der Downloads: Doppelklick spielt ab, Rechtsklick zeigt die Datei im Ordner oder entfernt sie aus der Liste
 - Natives Windows-Fenster in Rust: ca. 500 KB, ca. 4 MB RAM, Größe frei veränderbar
 - Keine Installation: `Corvus.exe` starten, fertig
-- Holt sich beim ersten Start seine Hilfsprogramme selbst und hält yt-dlp aktuell
+- Holt sich beim ersten Start seine Hilfsprogramme selbst, hält yt-dlp aktuell und zeigt an, wenn es eine neue Corvus-Version gibt
 
 ## Benutzen
 
@@ -39,6 +39,8 @@ Link rein, Musik oder Video raus – von **YouTube, TikTok und Instagram**. Ein 
 - Die Hilfsprogramme kommen nur von den offiziellen GitHub-Seiten der Projekte (nur HTTPS) und
   werden vor der Benutzung mit deren veröffentlichter SHA-256-Prüfsumme verglichen.
 - Windows-Programme (curl, tar, explorer, taskkill) werden mit vollem Pfad gestartet.
+- Beim Start fragt Corvus bei GitHub nach, ob es eine neuere Version gibt, und zeigt dann einen
+  Knopf **Update** an, der die Download-Seite öffnet. Corvus tauscht sich nie selbst aus.
 - Keine Admin-Rechte, kein offener Port, keine Daten an irgendwen außer YouTube und GitHub.
 
 ## Aufbau
