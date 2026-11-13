@@ -1,4 +1,4 @@
-//! The helper programs, downloaded once into %LOCALAPPDATA%\YT2MP3\bin
+//! The helper programs, downloaded once into %LOCALAPPDATA%\Corvus\bin
 //! with Windows' own curl.exe and tar.exe, each checked against the
 //! SHA-256 checksum its project publishes:
 //!   yt-dlp.exe              fetches the audio from YouTube
@@ -45,7 +45,7 @@ const TOOLS: [Tool; 3] = [
 
 pub fn bin() -> PathBuf {
     let base = std::env::var_os("LOCALAPPDATA").map(PathBuf::from).unwrap_or_else(std::env::temp_dir);
-    base.join("YT2MP3").join("bin")
+    base.join("Corvus").join("bin")
 }
 
 pub fn ytdlp() -> PathBuf {

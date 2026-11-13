@@ -1,4 +1,4 @@
-# Push a tag like v1.0.0 and GitHub builds YT2MP3.exe and attaches it to a release.
+# Push a tag like v1.0.0 and GitHub builds Corvus.exe and attaches it to a release.
 name: Release
 
 on:
@@ -22,9 +22,9 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          files: YT2MP3.exe
+          files: Corvus.exe
       - name: Keep as build artifact
         uses: actions/upload-artifact@v4
         with:
-          name: YT2MP3
-          path: YT2MP3.exe
+          name: Corvus
+          path: Corvus.exe

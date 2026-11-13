@@ -14,8 +14,8 @@ Push-Location $root
 try {
   cargo build --release --locked
   if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-  Copy-Item target\release\yt2mp3.exe YT2MP3.exe -Force
-  "Fertig: $root\YT2MP3.exe"
+  Copy-Item target\release\corvus.exe Corvus.exe -Force
+  "Fertig: $root\Corvus.exe"
 } finally {
   Pop-Location
 }

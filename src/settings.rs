@@ -1,4 +1,4 @@
-//! Tiny key=value settings file in %APPDATA%\YT2MP3\settings.txt.
+//! Tiny key=value settings file in %APPDATA%\Corvus\settings.txt.
 
 use std::path::PathBuf;
 
@@ -16,8 +16,21 @@ pub struct Settings {
     pub last_update: u64,
 }
 
+/// The app used to be called YT2MP3: move its settings and helper programs
+/// over once, so nothing has to be set up or downloaded again.
+pub fn migrate_old_name() {
+    for var in ["APPDATA", "LOCALAPPDATA"] {
+        if let Some(base) = std::env::var_os(var).map(PathBuf::from) {
+            let (old, new) = (base.join("YT2MP3"), base.join("Corvus"));
+            if old.is_dir() && !new.exists() {
+                let _ = std::fs::rename(&old, &new);
+            }
+        }
+    }
+}
+
 fn file() -> Option<PathBuf> {
-    let dir = PathBuf::from(std::env::var_os("APPDATA")?).join("YT2MP3");
+    let dir = PathBuf::from(std::env::var_os("APPDATA")?).join("Corvus");
     std::fs::create_dir_all(&dir).ok()?;
     Some(dir.join("settings.txt"))
 }

@@ -156,7 +156,7 @@ pub fn run(
     if let Err(e) = std::fs::create_dir_all(folder) {
         return send(Update::Failed(format!("Ordner nicht nutzbar: {e}")));
     }
-    let work = std::env::temp_dir().join("yt2mp3");
+    let work = std::env::temp_dir().join("corvus");
     let _ = std::fs::remove_dir_all(&work);
     let _ = std::fs::create_dir_all(&work);
     let result = work.join("result.txt");

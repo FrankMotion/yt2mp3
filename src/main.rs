@@ -1,4 +1,4 @@
-//! YT2MP3 – a plain black Windows window: YouTube link in, music or video out.
+//! Corvus – a plain black Windows window: YouTube link in, music or video out.
 #![windows_subsystem = "windows"]
 
 mod dark;
@@ -33,7 +33,7 @@ pub struct App {
     icon: nwg::Icon,
 
     // starts hidden; init() paints it black, then shows it (no white flash)
-    #[nwg_control(size: (600, 96), center: true, title: "YT2MP3", icon: Some(&data.icon), flags: "WINDOW|MINIMIZE_BOX|MAXIMIZE_BOX|RESIZABLE")]
+    #[nwg_control(size: (600, 96), center: true, title: "Corvus", icon: Some(&data.icon), flags: "WINDOW|MINIMIZE_BOX|MAXIMIZE_BOX|RESIZABLE")]
     #[nwg_events(OnWindowClose: [App::exit], OnInit: [App::init], OnResize: [App::layout], OnWindowMaximize: [App::layout])]
     window: nwg::Window,
 
@@ -439,6 +439,7 @@ impl App {
 }
 
 fn main() {
+    settings::migrate_old_name();
     dark::dark_menus();
     nwg::init().expect("Windows-Oberfläche konnte nicht starten");
     let mut font = nwg::Font::default();
