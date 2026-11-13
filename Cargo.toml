@@ -1,6 +1,6 @@
 [package]
 name = "corvus"
-version = "1.4.0"
+version = "1.5.0"
 description = "YouTube-Link rein, Musik oder Video raus. Minimal, nativ, wenig RAM."
 edition = "2021"
 publish = false

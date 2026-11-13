@@ -1,3 +1,5 @@
+<img src="res/icon-source.png" width="128" align="right" alt="Corvus">
+
 # Corvus
 
 Link rein, Musik oder Video raus – von **YouTube, TikTok und Instagram**. Ein kleines schwarzes Windows-Fenster, sonst nichts.
